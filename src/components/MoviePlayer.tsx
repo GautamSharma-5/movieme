@@ -1,7 +1,5 @@
-import React from 'react';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import styled from '@emotion/styled';
-import type { Theme } from '@emotion/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSwipeable } from 'react-swipeable';
 
@@ -11,12 +9,7 @@ interface Video {
   title: string;
 }
 
-interface MoviePlayerProps {
-  videos: Video[];
-  isFirstVisit: boolean;
-}
-
-const PlayerContainer = styled.div<{ theme?: Theme }>`
+const PlayerContainer = styled.div`
   position: relative;
   width: 100%;
   height: 100%;
@@ -99,17 +92,49 @@ const UnmuteButton = styled(motion.button)`
   }
 `;
 
-const MoviePlayer: React.FC<MoviePlayerProps> = ({ videos, isFirstVisit }) => {
+const MoviePlayer: React.FC = () => {
+  const [videos, setVideos] = useState<Video[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
-  const [showWelcome, setShowWelcome] = useState(isFirstVisit);
   const [playCount, setPlayCount] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
+  const [showWelcome, setShowWelcome] = useState(() => {
+    const visited = localStorage.getItem('visited');
+    if (!visited) {
+      localStorage.setItem('visited', 'true');
+      return true;
+    }
+    return false;
+  });
+
   const [shouldUnmute] = useState(() => {
     const savedMutePreference = localStorage.getItem('videoMuted');
     return savedMutePreference === 'false';
   });
+
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    fetch('https://movieme.rf.gd/assets/get_random_movies.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exclude_ids: [] })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'success') {
+          const fetched = data.movies.map((m: any) => ({
+            id: m.id,
+            url: m.video_url,
+            title: m.title
+          }));
+          setVideos(fetched);
+        } else {
+          console.error('Failed to load videos');
+        }
+      })
+      .catch(err => console.error('Error fetching:', err));
+  }, []);
 
   const tryPlayVideo = useCallback(async () => {
     if (videoRef.current) {
@@ -118,15 +143,12 @@ const MoviePlayer: React.FC<MoviePlayerProps> = ({ videos, isFirstVisit }) => {
         if (shouldUnmute) {
           setIsMuted(false);
         }
-      } catch (error) {
-        console.log('Autoplay failed, retrying in muted state');
-        if (videoRef.current) {
-          videoRef.current.muted = true;
-          try {
-            await videoRef.current.play();
-          } catch (retryError) {
-            console.log('Muted autoplay also failed');
-          }
+      } catch {
+        videoRef.current.muted = true;
+        try {
+          await videoRef.current.play();
+        } catch {
+          console.log('Play failed');
         }
       }
     }
@@ -144,13 +166,10 @@ const MoviePlayer: React.FC<MoviePlayerProps> = ({ videos, isFirstVisit }) => {
     }
   }, [playCount, tryPlayVideo]);
 
-  const handleNavigation = useCallback((direction: 'prev' | 'next') => {
-    setCurrentIndex(prevIndex => {
-      if (direction === 'prev') {
-        return prevIndex === 0 ? videos.length - 1 : prevIndex - 1;
-      } else {
-        return prevIndex === videos.length - 1 ? 0 : prevIndex + 1;
-      }
+  const handleNavigation = useCallback((dir: 'prev' | 'next') => {
+    setCurrentIndex(prev => {
+      if (dir === 'prev') return prev === 0 ? videos.length - 1 : prev - 1;
+      return prev === videos.length - 1 ? 0 : prev + 1;
     });
     setPlayCount(0);
     setIsPlaying(true);
@@ -165,26 +184,18 @@ const MoviePlayer: React.FC<MoviePlayerProps> = ({ videos, isFirstVisit }) => {
 
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      if (e.code === 'ArrowLeft') {
-        handleNavigation('prev');
-      } else if (e.code === 'ArrowRight') {
-        handleNavigation('next');
-      } else if (e.code === 'Space') {
-        setIsPlaying(prev => !prev);
-      }
+      if (e.code === 'ArrowLeft') handleNavigation('prev');
+      else if (e.code === 'ArrowRight') handleNavigation('next');
+      else if (e.code === 'Space') setIsPlaying(prev => !prev);
     };
-
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [handleNavigation]);
 
   useEffect(() => {
     if (videoRef.current) {
-      if (isPlaying) {
-        tryPlayVideo();
-      } else {
-        videoRef.current.pause();
-      }
+      if (isPlaying) tryPlayVideo();
+      else videoRef.current.pause();
     }
   }, [isPlaying, currentIndex, tryPlayVideo]);
 
@@ -199,11 +210,14 @@ const MoviePlayer: React.FC<MoviePlayerProps> = ({ videos, isFirstVisit }) => {
   }, [showWelcome, tryPlayVideo]);
 
   const handleVideoClick = (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.tagName !== 'BUTTON') {
+    if ((e.target as HTMLElement).tagName !== 'BUTTON') {
       setIsPlaying(prev => !prev);
     }
   };
+
+  if (videos.length === 0) {
+    return <p style={{ color: 'white', textAlign: 'center' }}>Loading videos...</p>;
+  }
 
   return (
     <PlayerContainer onClick={handleVideoClick} {...handlers}>
@@ -215,7 +229,7 @@ const MoviePlayer: React.FC<MoviePlayerProps> = ({ videos, isFirstVisit }) => {
             exit={{ opacity: 0, y: 20 }}
           >
             <h2>Welcome to MovieMe!</h2>
-            <p>Swipe or use arrow keys to navigate between videos</p>
+            <p>Swipe or use arrow keys to explore videos</p>
           </WelcomeMessage>
         )}
       </AnimatePresence>
@@ -251,18 +265,8 @@ const MoviePlayer: React.FC<MoviePlayerProps> = ({ videos, isFirstVisit }) => {
         )}
       </VideoWrapper>
 
-      <LeftButton
-        onClick={() => handleNavigation('prev')}
-        whileTap={{ scale: 0.9 }}
-      >
-        ←
-      </LeftButton>
-      <RightButton
-        onClick={() => handleNavigation('next')}
-        whileTap={{ scale: 0.9 }}
-      >
-        →
-      </RightButton>
+      <LeftButton onClick={() => handleNavigation('prev')} whileTap={{ scale: 0.9 }}>←</LeftButton>
+      <RightButton onClick={() => handleNavigation('next')} whileTap={{ scale: 0.9 }}>→</RightButton>
     </PlayerContainer>
   );
 };
