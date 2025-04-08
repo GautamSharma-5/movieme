@@ -23,7 +23,7 @@ const App: React.FC = () => {
     const fetchVideos = async () => {
       try {
         const response = await fetch(
-          'http://movieme.rf.gd/assets/get_random_movies.php',
+          'https://movieme.rf.gd/assets/get_random_movies.php',
           {
             method: 'POST',
             headers: {
